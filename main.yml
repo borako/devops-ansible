@@ -1,5 +1,41 @@
 ---
 - hosts: all
+  become: yes
+  vars:
+    APP_MESSAGE: "Hello World"
   tasks:
-    - debug:
-        msg: Hello, world
+    - name: Install docker
+      yum: name=docker
+    - name: Start docker
+      systemd: name=docker state=started
+    - name: Copy systemd service file in place
+      copy:
+        src: /vagrant/myapp.service
+        dest: /etc/systemd/system/myapp.service
+        remote_src: yes
+    - name: Enable myapp
+      systemd: name=myapp enabled=yes
+    - name: Daemon-reload
+      systemd: daemon_reload=yes
+    - name: Wait until docker service is started
+      shell: systemctl status docker 2&1>> /dev/null
+      register: res
+      until: res.rc == 0
+      retries: 10
+      delay: 1
+    - name: Copy build_app content
+      copy:
+        src: /vagrant/app/
+        dest: /tmp/build_app
+        remote_src: yes
+    - name: Replace app message string
+      replace:
+        path: /tmp/build_app/main.py
+        regexp: 'APP_MESSAGE'
+        replace: "{{ APP_MESSAGE }}"
+    - name: Build docker image
+      shell: docker build -t myapp .
+      args:
+        chdir: /tmp/build_app
+    - name: Start myapp
+      systemd: name=myapp state=started
